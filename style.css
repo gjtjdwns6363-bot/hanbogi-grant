@@ -75,3 +75,7 @@ button.more{display:block;margin:12px auto;padding:10px 28px}
 .sm{font-size:.85rem;color:var(--muted)}
 .filters input[type=text],.filters input[type=number]{padding:9px;margin-top:4px}
 .filters label.chk{display:flex;align-items:center;gap:6px;align-self:end;padding:9px 0}
+/* 대상 버튼 */
+.tgroups h3{font-size:.9rem;color:var(--muted);margin:12px 0 4px}
+.tgroups .chips{margin:0}
+.tgroups .chips a{font-weight:600}

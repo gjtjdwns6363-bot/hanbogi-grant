@@ -59,30 +59,18 @@ function regionOf(org) {
   return { sido: SIDO_ALIAS[hit] || hit, sgg };
 }
 
-// 생애주기·대상 태그 (지원조건 + 서비스명·지원대상 키워드)
-const TAGS = ['청년', '신혼', '임신·출산', '영유아', '아동·청소년', '노인', '장애인', '한부모·조손', '다문화', '저소득', '구직자', '학생', '농어업인', '소상공인', '보훈대상'];
-const Y = (c, ...ks) => ks.some((k) => c?.[k] === 'Y');
-function tagsOf(s, c) {
-  const t = new Set(), words = `${s.서비스명} ${s.지원대상}`;
-  const a0 = c?.JA0110 ?? null, a1 = c?.JA0111 ?? null;
-  const narrow = a0 != null && a1 != null && (a0 > 0 || a1 < 100);
-  if (/청년/.test(s.서비스명) || (narrow && a0 >= 15 && a1 <= 45 && a1 >= 19)) t.add('청년');
-  if (/신혼|예비부부/.test(words)) t.add('신혼');
-  if (Y(c, 'JA0301', 'JA0302', 'JA0303') || /임신|출산|산모|난임|임산부/.test(s.서비스명)) t.add('임신·출산');
-  if ((narrow && a1 <= 7) || /영유아|영아|보육|어린이집/.test(s.서비스명)) t.add('영유아');
-  if ((narrow && a1 <= 18 && a1 > 7) || /아동|청소년/.test(s.서비스명)) t.add('아동·청소년');
-  if ((narrow && a0 >= 50) || /노인|어르신|경로/.test(s.서비스명)) t.add('노인');
-  if (Y(c, 'JA0328') || /장애/.test(s.서비스명)) t.add('장애인');
-  if (Y(c, 'JA0403') || /한부모|조손/.test(words)) t.add('한부모·조손');
-  if (Y(c, 'JA0401', 'JA0402') || /다문화|북한이탈/.test(words)) t.add('다문화');
-  if (/기초생활|차상위|저소득/.test(words) || (incomeMask(c) && !Y(c, 'JA0204', 'JA0205'))) t.add('저소득');
-  if (Y(c, 'JA0327') || /구직|실업|취업/.test(s.서비스명)) t.add('구직자');
-  if (Y(c, 'JA0317', 'JA0318', 'JA0319', 'JA0320') || /장학|학생/.test(s.서비스명)) t.add('학생');
-  if (Y(c, 'JA0313', 'JA0314', 'JA0315', 'JA0316') || s.서비스분야 === '농림축산어업') t.add('농어업인');
-  if (Y(c, 'JA1101', 'JA1102', 'JA1103') || /소상공인/.test(`${s.사용자구분} ${s.서비스명}`)) t.add('소상공인');
-  if (Y(c, 'JA0329') || /보훈|유공자/.test(s.서비스명)) t.add('보훈대상');
-  return TAGS.filter((x) => t.has(x));
-}
+// 대상 분류(신혼부부·임산부·중소기업 …)는 targets.js 한 곳에 모아 둔다
+const { TARGETS, GROUPS, targetsOf } = require('./targets.js');
+const tPath = (t) => `/t/${t.slug}/`;
+const TBY = new Map(TARGETS.map((t) => [t.label, t]));
+const TARGET_MIN = 3; // 랜딩 페이지는 이 개수 미만이거나 색인할 서비스가 없으면 noindex
+const targetNoindex = (l) => l.length < TARGET_MIN || !l.some((s) => s.indexable);
+// 대상 랜딩 정렬: 마감 임박(오늘 이후 마감이 가까운 순) → 나머지는 최근 수정 순
+const urgentFirst = (today) => (a, b) => {
+  const ua = !!a.deadline && a.deadline >= today, ub = !!b.deadline && b.deadline >= today;
+  if (ua !== ub) return ua ? -1 : 1;
+  return ua ? a.deadline.localeCompare(b.deadline) : String(b.수정일시 || '').localeCompare(String(a.수정일시 || ''));
+};
 const INCOME = ['중위소득 50% 이하', '51~75%', '76~100%', '101~200%', '200% 초과'];
 const incomeMask = (c) => ['JA0201', 'JA0202', 'JA0203', 'JA0204', 'JA0205'].reduce((m, k, i) => m | (c?.[k] === 'Y' ? 1 << i : 0), 0);
 const isOnline = (s) => /^https?:\/\//.test(s.온라인신청사이트URL || '') || /온라인|인터넷/.test(s.신청방법 || '');
@@ -160,6 +148,7 @@ function page({ title, desc, p, body, noindex, ld }) {
 <meta property="og:description" content="${esc(desc)}">
 <meta property="og:url" content="${esc(url)}">
 <link rel="stylesheet" href="/style.css">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="icon" href="/favicon-32.png" sizes="32x32"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5424435978828190" crossorigin="anonymous"></script>
 <meta name="naver-site-verification" content="b1be46046dc6d5116c831e7ca56190a9c8a6067a" />
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-19F8RF6971"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag("js",new Date());gtag("config","G-19F8RF6971");</script>${ld ? `\n<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>` : ''}
@@ -173,16 +162,16 @@ ${body}
 <ul class="chips" style="margin:10px 0 0"><li><a href="${BENEFIT}/">혜택 알리미 블로그</a></li><li><a href="${CALC}/eitc/">근로장려금 계산기</a></li><li><a href="${CALC}/parental-leave/">육아휴직 급여 계산기</a></li><li><a href="${CALC}/unemployment/">실업급여 계산기</a></li><li><a href="${CALC}/">한눈 계산기</a></li></ul></div>
 </main>
 <footer>데이터 출처: 행정안전부 대한민국 공공서비스(혜택) 정보 (공공데이터포털), 기준 시각 ${STAMP} KST<br>
-© 정부 지원금 찾기 · <a href="/">홈</a> · <a href="/c/">분야별</a> · <a href="/r/">지역별</a> · <a href="/privacy.html">개인정보처리방침</a></footer>
+© 정부 지원금 찾기 · <a href="/">홈</a> · <a href="/t/">대상별</a> · <a href="/c/">분야별</a> · <a href="/r/">지역별</a> · <a href="/privacy.html">개인정보처리방침</a></footer>
 </body></html>
 `;
 }
 const href = (p) => esc(encodeURI(p));
 const svcPath = (s) => `/s/${s.서비스ID}/`;
 const ddayLabel = (d, today) => { if (!d) return ''; const n = Math.round((Date.parse(d) - Date.parse(today)) / DAY); return n < 0 ? '마감' : n === 0 ? 'D-day' : `D-${n}`; };
-function svcList(list, today, max = Infinity) {
+function svcList(list, today, max = Infinity, attr = () => '') {
   if (!list.length) return '<p class="hint">해당 서비스가 없어요.</p>';
-  return '<ul class="svc">' + list.slice(0, max).map((s) => `<li><a href="${href(svcPath(s))}">${esc(s.서비스명)}</a>` +
+  return '<ul class="svc">' + list.slice(0, max).map((s) => `<li${attr(s)}><a href="${href(svcPath(s))}">${esc(s.서비스명)}</a>` +
     ` <span class="hint">${esc(s.소관기관명)}${s.deadline ? ` · ~${s.deadline.slice(5).replace('-', '.')} <b>${ddayLabel(s.deadline, today)}</b>` : ''}</span>` +
     (s.서비스목적요약 ? `<br><span class="sm">${esc(clip(s.서비스목적요약, 70))}</span>` : '') + '</li>').join('') + '</ul>';
 }
@@ -204,7 +193,7 @@ function servicePage(s, today) {
 <h1>${esc(s.서비스명)}</h1>
 <p class="lead">${esc(s.소관기관명)}${s.부서명 ? ' ' + esc(s.부서명) : ''} · ${esc(s.지원유형 || '')}${s.deadline ? ` · 신청 마감 ${s.deadline} <b>${ddayLabel(s.deadline, today)}</b>` : ''}</p>
 ${s.서비스목적 || s.서비스목적요약 ? `<div class="card">${text(s.서비스목적 || s.서비스목적요약)}</div>` : ''}
-${s.tags.length ? `<ul class="chips sm">${s.tags.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+${s.tags.length ? `<ul class="chips">${s.tags.map((t) => `<li><a href="${href(tPath(TBY.get(t)))}">${esc(t)} 지원금 모음</a></li>`).join('')}</ul>` : ''}
 <p>${online ? `<a class="cta" href="${esc(online)}" rel="nofollow noopener" target="_blank">👉 온라인 신청하기</a> ` : ''}<a href="${esc(orig)}" rel="nofollow noopener" target="_blank">보조금24 원문 보기 →</a></p>
 ${rows.map(([k, v]) => `<h2>${k}</h2><div class="card">${text(v)}</div>`).join('\n')}
 ${calc.length ? `<p>미리 계산해 보기: ${calc.map(([p, n]) => `<a href="${CALC}/${p}/">${n}</a>`).join(' · ')}</p>` : ''}
@@ -233,7 +222,7 @@ async function main() {
     const s = { ...l };
     for (const [k, v] of Object.entries(d)) if (String(v ?? '').trim()) s[k] = v; // 상세가 있으면 상세 우선
     s.region = regionOf(s.소관기관명);
-    s.tags = tagsOf(s, c);
+    s.tags = targetsOf(s, c);
     s.inc = incomeMask(c);
     s.age = [c?.JA0110 ?? null, c?.JA0111 ?? null];
     s.online = isOnline(s);
@@ -254,7 +243,7 @@ async function main() {
     if (!html.includes('content="noindex')) indexable.push(p);
   };
   fs.mkdirSync(path.join(OUT, 'data'), { recursive: true });
-  for (const f of ['style.css', 'CNAME', 'home.js']) fs.copyFileSync(path.join(__dirname, f), path.join(OUT, f));
+  for (const f of ['style.css', 'CNAME', 'home.js', 'favicon.svg', 'favicon-32.png', 'apple-touch-icon.png']) fs.copyFileSync(path.join(__dirname, f), path.join(OUT, f));
 
   for (const s of svcs) write(svcPath(s), servicePage(s, today));
 
@@ -313,9 +302,39 @@ ${svcList(l, today)}` }));
     body: `<p class="hint"><a href="/">홈</a> › 지역별</p><h1>지역별 지원금·혜택</h1>
 <ul class="chips">${sidoList.map((sd) => { const R = bySido.get(sd); return `<li><a href="${href(`/r/${slug(sd)}/`)}">${esc(sd)} <span class="c">${comma(R.own.length + [...R.sgg.values()].reduce((a, l) => a + l.length, 0))}</span></a></li>`; }).join('')}</ul>` }));
 
+  // 대상 랜딩 /t/<slug>/
+  const byT = new Map(TARGETS.map((t) => [t.label, []]));
+  for (const s of svcs) for (const l of s.tags) byT.get(l).push(s);
+  const year = today.slice(0, 4);
+  for (const t of TARGETS) {
+    const l = byT.get(t.label).sort(urgentFirst(today)), P = tPath(t);
+    const sds = sidoList.filter((sd) => l.some((s) => s.region.sido === sd)), fds = fields.filter((f) => l.some((s) => (s.서비스분야 || '기타') === f));
+    write(P, page({ title: `${year} ${t.label} 지원금·혜택 모음 (${comma(l.length)}건) | 정부 지원금 찾기`, p: P, noindex: targetNoindex(l),
+      desc: clip(`${t.label} 대상 정부·지자체 지원금과 혜택 ${l.length}건. ${t.intro} 마감 임박 순으로 정리하고 매일 갱신해요.`, 155),
+      ld: crumbs([['홈', '/'], ['대상별', '/t/'], [t.label, P]]),
+      body: `<p class="hint"><a href="/">홈</a> › <a href="/t/">대상별</a> › ${esc(t.label)}</p>
+<h1>${year} ${esc(t.label)} 지원금·혜택 모음 (${comma(l.length)}건)</h1>
+<p class="lead">${esc(t.intro)} 신청 마감이 가까운 것부터, 그다음은 최근 수정된 순서로 보여 드려요.</p>
+${t.links.length ? `<p>함께 보기: ${t.links.map(([u, n]) => `<a href="${esc(u)}">${esc(n)}</a>`).join(' · ')}</p>` : ''}
+<div class="card filters" id="tf">
+<label>지역<select id="tsd"><option value="">전체</option><option value="-1">전국 공통만</option>${sds.map((sd) => `<option value="${sidoList.indexOf(sd)}">${esc(sd)}</option>`).join('')}</select></label>
+<label>분야<select id="tfd"><option value="">전체</option>${fds.map((f) => `<option value="${fields.indexOf(f)}">${esc(f)}</option>`).join('')}</select></label>
+<label class="chk"><input type="checkbox" id="tnat" checked> 지역 선택 시 전국 공통 포함</label>
+</div>
+<p id="tsum" class="sum" aria-live="polite"></p>
+${svcList(l, today, Infinity, (s) => ` data-r="${sidoList.indexOf(s.region.sido)}" data-f="${fields.indexOf(s.서비스분야 || '기타')}"`)}
+<p class="hint">대상 분류는 보조금24 지원조건과 지원대상 문구로 자동으로 나눈 것이라 일부 맞지 않을 수 있어요. 자격은 각 서비스의 선정 기준에서 확인하세요.</p>
+<script src="/home.js" defer></script>` }));
+  }
+  const tChips = (g) => `<ul class="chips">${TARGETS.filter((t) => t.group === g).map((t) => `<li><a href="${href(tPath(t))}" data-t="${TARGETS.indexOf(t)}">${esc(t.label)} <span class="c">${comma(byT.get(t.label).length)}</span></a></li>`).join('')}</ul>`;
+  write('/t/', page({ title: '대상별 정부 지원금 (신혼부부·임산부·청년·소상공인·중소기업) | 정부 지원금 찾기', p: '/t/',
+    desc: '신혼부부, 임산부, 출산, 영유아, 청년, 노인, 장애인, 소상공인, 중소기업 등 대상별 정부·지자체 지원금 모음.',
+    body: `<p class="hint"><a href="/">홈</a> › 대상별</p><h1>대상별 정부 지원금</h1>
+${GROUPS.map((g) => `<h2>${esc(g)}</h2>${tChips(g)}`).join('\n')}` }));
+
   // 검색 색인 (홈 JS가 읽음): [id, 이름, 기관, 분야#, 시도#, 시군구, 태그비트, 소득비트, 온라인, 마감, 요약, 나이from, 나이to]
-  const idx = { f: fields, s: sidoList, t: TAGS, d: svcs.map((s) => [s.서비스ID, s.서비스명, s.소관기관명, fields.indexOf(s.서비스분야 || '기타'), sidoList.indexOf(s.region.sido),
-    s.region.sgg, s.tags.reduce((m, t) => m | (1 << TAGS.indexOf(t)), 0), s.inc, s.online ? 1 : 0, s.deadline, clip(s.서비스목적요약, 50), s.age[0], s.age[1]]) };
+  const idx = { f: fields, s: sidoList, t: TARGETS.map((t) => t.label), ts: TARGETS.map((t) => t.slug), d: svcs.map((s) => [s.서비스ID, s.서비스명, s.소관기관명, fields.indexOf(s.서비스분야 || '기타'), sidoList.indexOf(s.region.sido),
+    s.region.sgg, s.tags.reduce((m, t) => m | (1 << TARGETS.indexOf(TBY.get(t))), 0), s.inc, s.online ? 1 : 0, s.deadline, clip(s.서비스목적요약, 50), s.age[0], s.age[1]]) };
   fs.writeFileSync(path.join(OUT, 'data', 'index.json'), JSON.stringify(idx));
 
   // 홈
@@ -327,9 +346,11 @@ ${svcList(l, today)}` }));
     desc: `중앙부처·지자체 지원금과 공공서비스 ${comma(svcs.length)}개를 나이·생애주기·지역·분야·소득으로 찾아보세요. 신청 마감 임박 서비스와 새 서비스를 매일 갱신해요.`,
     body: `<h1>정부 지원금 찾기</h1>
 <p class="lead">보조금24의 공공서비스 <b>${comma(svcs.length)}개</b>를 매일 새벽 모아 두었어요. 조건을 고르면 받을 수 있을 만한 지원금을 추려 드려요.</p>
+<div class="card tgroups" id="tbtn"><b>누구를 위한 지원금을 찾으세요?</b>
+${GROUPS.map((g) => `<h3>${esc(g)}</h3>${tChips(g)}`).join('\n')}</div>
 <div class="card filters">
 <label style="grid-column:1/-1">검색어<input type="text" id="q" placeholder="예: 월세, 출산, 장학금, 근로장려금" autocomplete="off"></label>
-<label>생애주기·대상<select id="tg"><option value="">전체</option>${opt(TAGS)}</select></label>
+<label>대상<select id="tg"><option value="">전체</option>${opt(TARGETS.map((t) => t.label))}</select></label>
 <label>나이<input type="number" id="ag" min="0" max="120" inputmode="numeric" placeholder="만 나이"></label>
 <label>시도<select id="sd"><option value="">전체 지역</option>${opt(sidoList)}</select></label>
 <label>시군구<select id="sg"><option value="">전체</option></select></label>
@@ -367,5 +388,5 @@ ${svcList(l, today)}` }));
   console.log('API 호출 수:', FIX ? '(fixtures)' : calls);
 }
 
-module.exports = { parseDeadline, regionOf, tagsOf, incomeMask, isMeaningful, isOnline, sitemaps, calcLinks, normDate, slug, TAGS };
+module.exports = { parseDeadline, regionOf, incomeMask, isMeaningful, isOnline, sitemaps, calcLinks, normDate, slug, targetNoindex, urgentFirst, TARGET_MIN };
 if (require.main === module) main().catch((e) => { console.error('❌ 빌드 실패:', e.message); process.exit(e.auth ? 3 : 1); });

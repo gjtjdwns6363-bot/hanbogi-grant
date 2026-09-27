@@ -1,6 +1,18 @@
-// 홈 검색·필터: /data/index.json 을 받아 브라우저 안에서만 거른다
+// 홈 검색·필터: /data/index.json 을 받아 브라우저 안에서만 거른다. 대상 랜딩(/t/)에서는 목록 지역·분야 거르기만.
 (function () {
   var $ = function (i) { return document.getElementById(i); }, D = null, n = 50;
+  if ($('tf')) {
+    var tf = function () {
+      var r = $('tsd').value, f = $('tfd').value, nat = $('tnat').checked, k = 0;
+      [].forEach.call(document.querySelectorAll('ul.svc li'), function (li) {
+        var ok = (r === '' || li.dataset.r === r || (nat && r !== '-1' && li.dataset.r === '-1')) && (f === '' || li.dataset.f === f);
+        li.hidden = !ok; if (ok) k++;
+      });
+      $('tsum').textContent = (r === '' && f === '') ? '' : k.toLocaleString() + '건';
+    };
+    ['tsd', 'tfd', 'tnat'].forEach(function (i) { $(i).addEventListener('change', tf); });
+    return;
+  }
   function h(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   var today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
   function dday(d) { var k = Math.round((Date.parse(d) - Date.parse(today)) / 864e5); return k < 0 ? '마감' : k === 0 ? 'D-day' : 'D-' + k; }
@@ -26,7 +38,7 @@
       var t = (x[1] + ' ' + x[2] + ' ' + x[10]).toLowerCase();
       return q.every(function (w) { return t.indexOf(w) >= 0; });
     });
-    $('sum').textContent = L.length.toLocaleString() + '개 서비스';
+    $('sum').innerHTML = L.length.toLocaleString() + '개 서비스' + (tg !== '' && D.ts ? ' · <a href="/t/' + encodeURIComponent(D.ts[tg]) + '/">' + h(D.t[tg]) + ' 지원금 모아보기 →</a>' : '');
     $('list').innerHTML = L.slice(0, n).map(function (x) {
       return '<li><a href="/s/' + h(x[0]) + '/">' + h(x[1]) + '</a> <span class="hint">' + h(x[2]) + ' · ' + h(D.f[x[3]]) +
         (x[9] ? ' · ~' + x[9].slice(5).replace('-', '.') + ' <b>' + dday(x[9]) + '</b>' : '') + '</span>' + (x[10] ? '<br><span class="sm">' + h(x[10]) + '</span>' : '') + '</li>';
@@ -38,6 +50,13 @@
   ['tg', 'sg', 'fd', 'ic', 'nat', 'on'].forEach(function (i) { $(i).addEventListener('change', reset); });
   $('sd').addEventListener('change', function () { sggs(); reset(); });
   $('more').onclick = function () { n += 50; draw(); };
+  // 대상 버튼: 링크(랜딩)는 그대로 두고, 클릭하면 아래 목록을 그 대상으로 거른다
+  [].forEach.call(document.querySelectorAll('#tbtn a[data-t]'), function (a) {
+    a.addEventListener('click', function (e) {
+      if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+      e.preventDefault(); $('tg').value = a.dataset.t; reset(); $('sum').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
   fetch('/data/index.json').then(function (r) { return r.json(); }).then(function (j) { D = j; sggs(); draw(); })
     .catch(function () { $('sum').textContent = '목록을 불러오지 못했어요. 새로고침해 주세요.'; });
 })();
