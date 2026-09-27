@@ -8,7 +8,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write # state/pages.json(lastmod 기록)을 main에 커밋
   pages: write
   id-token: write
 
@@ -47,6 +47,14 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+      - if: steps.build.outputs.skip != '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: state
+          path: |
+            state/pages.json
+            indexnow.json
+          retention-days: 3
   deploy:
     needs: build
     if: needs.build.outputs.skip != '1'
@@ -57,3 +65,33 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+  after-deploy: # 배포가 끝난 뒤에만: lastmod 기록 커밋 + IndexNow(오늘 바뀐 URL만)
+    needs: [build, deploy]
+    if: needs.build.outputs.skip != '1'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: state
+      - name: lastmod 기록 커밋
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/pages.json
+          if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
+          git commit -q -m "lastmod 기록 갱신 [skip ci]"
+          for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
+          echo "::warning::state/pages.json 푸시 실패 — 다음 실행에서 lastmod가 다시 오늘로 잡힐 수 있어요"
+      - name: IndexNow (네이버·Bing 등)
+        run: |
+          n=$(jq length indexnow.json)
+          echo "보낼 URL: $n개"
+          if [ "$n" -eq 0 ]; then exit 0; fi
+          KEY=e386846d4b6f939fd1b440af9728c599
+          jq -c --arg k "$KEY" '{host:"grant.hanbogi.com",key:$k,keyLocation:("https://grant.hanbogi.com/"+$k+".txt"),urlList:.}' indexnow.json > body.json
+          for ep in https://searchadvisor.naver.com/indexnow https://api.indexnow.org/indexnow; do
+            code=$(curl -s -o resp.txt -w "%{http_code}" -H "Content-Type: application/json; charset=utf-8" --data-binary @body.json "$ep")
+            echo "$ep → HTTP $code $(head -c 300 resp.txt)"
+            case $code in 200|202) ;; *) echo "::warning::IndexNow $ep HTTP $code";; esac
+          done

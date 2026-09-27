@@ -50,7 +50,7 @@ const CALC = 'https://calc.hanbogi.com', BENEFIT = 'https://benefit.hanbogi.com'
 const RAW = [
   ['가족·출산', '신혼부부', '혼인 기간이 짧은 신혼부부나 결혼을 앞둔 예비부부가 받을 수 있는 주거·대출·결혼 지원이에요.',
     null, /신혼|예비\s*부부|혼인\s*(기간\s*)?\d+\s*년|결혼\s*(장려|축하|지원|비용|준비|예정)|웨딩/,
-    [[`${CALC}/loan/`, '신혼부부 대출 계산기'], [`${BENEFIT}/`, '혜택 알리미 블로그']]],
+    [[`${CALC}/loan/`, '신혼부부 대출 계산기'], ['https://home.hanbogi.com/subscription/', '아파트 청약 일정'], ['https://home.hanbogi.com/lh/', 'LH 임대·분양 공고'], [`${BENEFIT}/`, '혜택 알리미 블로그']]],
   ['가족·출산', '임산부', '임신 중이거나 임신을 준비하는(난임 포함) 분을 위한 검진·의료비·교통 지원이에요.',
     (s, c) => pick(c, 'sp', 'JA0301', 'JA0302'), /임산부|임신|난임|예비\s*부모|태아|산전/,
     [[`${CALC}/parental-leave/`, '육아휴직 급여 계산기']]],

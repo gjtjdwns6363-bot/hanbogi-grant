@@ -1,6 +1,7 @@
 // node test.js — 핵심 순수 함수 검사
 const assert = require('assert');
-const { parseDeadline, regionOf, incomeMask, isMeaningful, isOnline, sitemaps, calcLinks, normDate, slug, targetNoindex, urgentFirst, TARGET_MIN } = require('./build.js');
+const { parseDeadline, regionOf, incomeMask, isMeaningful, isOnline, sitemaps, calcLinks, normDate, slug, targetNoindex, urgentFirst, TARGET_MIN,
+  whereOf, svcNames, svcTitle, stableHtml, trackPage, pingList, rfc822 } = require('./build.js');
 const { targetsOf, TARGETS } = require('./targets.js');
 
 // 신청기한
@@ -105,6 +106,44 @@ assert.deepStrictEqual(Object.keys(many), ['sitemap-1.xml', 'sitemap-2.xml', 'si
 assert.strictEqual((many['sitemap-3.xml'].match(/<url>/g) || []).length, 2);
 assert.ok(many['sitemap.xml'].includes('<sitemapindex') && many['sitemap.xml'].includes('https://grant.hanbogi.com/sitemap-2.xml'));
 assert.ok(sitemaps(['/c/고용-창업/'], 'x')['sitemap.xml'].includes('/c/%EA%B3%A0%EC%9A%A9-%EC%B0%BD%EC%97%85/')); // 한글 경로 인코딩
+
+// 제목: 지역 붙이기 + 중복 없음
+const R = (org, o) => ({ 서비스명: '출산장려금 지원', 소관기관명: org, region: regionOf(org), ...o });
+assert.strictEqual(whereOf(R('전라남도 완도군')), '완도군');
+assert.strictEqual(whereOf(R('전라남도 완도군', { 서비스명: '완도 출산장려금' })), ''); // 이름에 이미 지역
+assert.strictEqual(whereOf(R('충청북도', { 서비스명: '충북 청년 월세' })), '');
+assert.strictEqual(whereOf(R('충청북도')), '충청북도');
+assert.strictEqual(whereOf(R('보건복지부')), ''); // 전국
+const svcsT = [R('전라남도 완도군', { 서비스ID: 'a' }), R('경상남도 거창군', { 서비스ID: 'b' }), R('보건복지부', { 서비스ID: 'c' }),
+  R('경기도 수원시', { 서비스ID: 'd', 부서명: '출산정책과' }), R('경기도 수원시 보건소', { 서비스ID: 'e', 부서명: '건강증진과' })];
+const nm = svcNames(svcsT);
+assert.strictEqual(nm.get('a'), '완도군 출산장려금 지원');
+assert.strictEqual(nm.get('c'), '출산장려금 지원');
+assert.strictEqual(nm.get('d'), '수원시 출산장려금 지원 (경기도 수원시)'); // 같은 시에서 이름이 겹치면 소관기관명
+assert.strictEqual(svcNames([R('경기도 수원시', { 서비스ID: 'x', 부서명: '가과' }), R('경기도 수원시', { 서비스ID: 'y', 부서명: '나과' })]).get('y'), '수원시 출산장려금 지원 (경기도 수원시 나과)');
+assert.strictEqual(new Set(svcsT.map((x) => svcTitle(nm.get(x.서비스ID), '2026'))).size, svcsT.length); // 제목 중복 0
+assert.strictEqual(svcTitle('완도군 출산장려금 지원', '2026'), '완도군 출산장려금 지원 신청 방법·대상·금액 (2026) | 정부 지원금 찾기');
+
+// lastmod: 기준 시각·D-day만 바뀌면 날짜 유지, 내용이 바뀌면 오늘
+const H = (stamp, dd, body = '본문') => `<p>${body} <b>${dd}</b></p><footer>기준 시각 ${stamp} KST</footer>`;
+const e1 = trackPage(undefined, H('2026-09-26 05:30', 'D-5'), '2026-09-26', '2026-09-26 05:30');
+assert.strictEqual(e1[1], '2026-09-26');
+assert.strictEqual(trackPage(e1, H('2026-09-27 05:30', 'D-4'), '2026-09-27', '2026-09-27 05:30'), e1); // 안 바뀜
+assert.strictEqual(trackPage(e1, H('2026-09-28 05:30', '마감'), '2026-09-28', '2026-09-28 05:30')[1], '2026-09-26');
+assert.deepStrictEqual(trackPage(e1, H('2026-09-27 05:30', 'D-4', '새 본문'), '2026-09-27', '2026-09-27 05:30')[1], '2026-09-27');
+assert.strictEqual(stableHtml('a <b>D-day</b> x', 'x'), 'a  ');
+// 사이트맵: 페이지별 lastmod, 색인 파일은 가장 최근 날짜
+const lm = { '/s/1/': '2026-09-20', '/s/2/': '2026-09-25', '/': '2026-09-27' };
+assert.ok(sitemaps(['/s/1/'], (p) => lm[p])['sitemap.xml'].includes('<lastmod>2026-09-20</lastmod>'));
+const lmi = sitemaps(['/s/1/', '/s/2/', '/'], (p) => lm[p], 2)['sitemap.xml'];
+assert.ok(lmi.includes('sitemap-1.xml</loc><lastmod>2026-09-25') && lmi.includes('sitemap-2.xml</loc><lastmod>2026-09-27'));
+// IndexNow 목록
+const seenT = { '/': ['h', '2026-09-27'], '/s/1/': ['h', '2026-09-27'], '/s/2/': ['h', '2026-09-20'], '/c/x/': ['h', '2026-09-27'] };
+assert.deepStrictEqual(pingList(['/s/1/', '/', '/s/2/', '/c/x/'], seenT, '2026-09-27', false), ['/s/1/', '/', '/c/x/']);
+assert.deepStrictEqual(pingList(['/s/1/', '/', '/c/x/'], seenT, '2026-09-27', false, 2), []); // 한도 초과면 안 보냄
+assert.deepStrictEqual(pingList(['/s/1/', '/', '/c/x/'], seenT, '2026-09-27', true, 2), ['/', '/c/x/']); // 첫 실행: 허브 먼저, 한도까지
+assert.deepStrictEqual(pingList(['/s/2/'], seenT, '2026-09-27', false), []);
+assert.strictEqual(rfc822('20260927151208'), 'Sun, 27 Sep 2026 06:12:08 GMT');
 
 // 기타
 assert.deepStrictEqual(calcLinks({ 서비스명: '근로장려금', 지원내용: '', 서비스분야: '생활안정' }).map((x) => x[0]), ['eitc']);

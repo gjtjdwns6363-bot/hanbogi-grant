@@ -11,6 +11,12 @@ const FIX = process.argv.includes('--fixtures');
 const SITE = 'https://grant.hanbogi.com';
 const CALC = 'https://calc.hanbogi.com';
 const BENEFIT = 'https://benefit.hanbogi.com';
+const HOME = 'https://home.hanbogi.com';
+const INDEXNOW_KEY = 'e386846d4b6f939fd1b440af9728c599';
+const INDEXNOW_MAX = 10000;
+const NETWORK = [['https://calc.hanbogi.com', '계산기'], [HOME, '부동산 알리미'], [SITE, '정부 지원금 찾기'], [BENEFIT, '혜택 알리미'],
+  ['https://license.hanbogi.com', '자격증 한눈에'], ['https://hanbogi.com', '오늘의 게임'], ['https://stay.hanbogi.com', '오늘의 숙소'], ['https://gadget.hanbogi.com', '기기 비교소']];
+const STATE = path.join(__dirname, 'state', 'pages.json'); // 페이지별 [내용 해시, lastmod] — 워크플로가 main에 커밋해 다음 실행으로 이어 감
 const API = 'https://api.odcloud.kr/api/gov24/v3';
 const OUT = path.join(__dirname, 'dist');
 const PER_PAGE = +process.env.PER_PAGE || 1000;
@@ -79,12 +85,15 @@ const isOnline = (s) => /^https?:\/\//.test(s.온라인신청사이트URL || '')
 const letters = (s) => String(s ?? '').replace(/[\s\p{P}\p{S}]/gu, '').length;
 const isMeaningful = (s) => letters(s.지원내용) >= 10 && letters(`${s.지원대상}${s.선정기준}${s.지원내용}`) >= 40;
 
-function sitemaps(paths, today, max = SITEMAP_MAX) { // → { 파일명: 내용 }. max 초과면 sitemap-N.xml + 색인
-  const urlset = (ps) => `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${ps.map((p) => `<url><loc>${esc(SITE + encodeURI(p))}</loc><lastmod>${today}</lastmod></url>`).join('\n')}\n</urlset>\n`;
+function sitemaps(paths, lastmod, max = SITEMAP_MAX) { // lastmod: 경로 → 날짜 함수. max 초과면 sitemap-N.xml + 색인
+  if (typeof lastmod !== 'function') { const d = lastmod; lastmod = () => d; }
+  const urlset = (ps) => `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${ps.map((p) => `<url><loc>${esc(SITE + encodeURI(p))}</loc><lastmod>${lastmod(p)}</lastmod></url>`).join('\n')}\n</urlset>\n`;
+  const newest = (ps) => ps.reduce((m, p) => (lastmod(p) > m ? lastmod(p) : m), '');
   if (paths.length <= max) return { 'sitemap.xml': urlset(paths) };
   const out = {};
-  for (let i = 0; i * max < paths.length; i++) out[`sitemap-${i + 1}.xml`] = urlset(paths.slice(i * max, (i + 1) * max));
-  out['sitemap.xml'] = `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${Object.keys(out).map((f) => `<sitemap><loc>${SITE}/${f}</loc><lastmod>${today}</lastmod></sitemap>`).join('\n')}\n</sitemapindex>\n`;
+  const parts = [];
+  for (let i = 0; i * max < paths.length; i++) { parts.push(paths.slice(i * max, (i + 1) * max)); out[`sitemap-${i + 1}.xml`] = urlset(parts[i]); }
+  out['sitemap.xml'] = `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${parts.map((ps, i) => `<sitemap><loc>${SITE}/sitemap-${i + 1}.xml</loc><lastmod>${newest(ps)}</lastmod></sitemap>`).join('\n')}\n</sitemapindex>\n`;
   return out;
 }
 
@@ -95,9 +104,50 @@ const CALCS = [
 ];
 function calcLinks(s) {
   const t = `${s.서비스명} ${s.지원내용}`, out = CALCS.filter(([re]) => re.test(t)).map(([, p, n]) => [p, n]);
+  const tags = s.tags || [], add = (p, n) => out.some(([q]) => q === p) || out.push([p, n]);
+  if (tags.some((t) => ['임산부', '출산·산모', '영유아'].includes(t))) add('parental-leave', '육아휴직 급여 계산기');
+  if (tags.includes('구직자·실업자')) add('unemployment', '실업급여 계산기');
   if (s.서비스분야 === '고용·창업') out.push(['salary', '연봉 실수령액 계산기'], ['hourly', '알바 시급·주휴수당 계산기']);
   return out;
 }
+
+// ---------- 제목: 지자체 서비스는 지역을 앞에 (같은 이름이 지자체마다 반복되므로) ----------
+const sidoShort = (sd) => (/^..[남북]도$/.test(sd) ? sd[0] + sd[2] : sd.slice(0, 2)); // 충청북도→충북, 서울특별시→서울
+function whereOf(s) { // 붙일 지역명. 전국 서비스이거나 서비스명에 이미 지역이 있으면 ''
+  const { sido, sgg } = s.region || {};
+  if (!sido) return '';
+  const stems = sgg ? sgg.split(' ').flatMap((t) => [t, t.length > 2 ? t.slice(0, -1) : '']) : [sido, sidoShort(sido)];
+  return stems.some((x) => x && String(s.서비스명).includes(x)) ? '' : sgg || sido;
+}
+// 서비스ID → 표시 이름(h1·제목 앞부분). 지역을 붙여도 겹치면 (소관기관명), 그래도 겹치면 (소관기관명 부서명)
+function svcNames(svcs) {
+  const base = (s) => { const w = whereOf(s); return `${w ? w + ' ' : ''}${String(s.서비스명).trim()}`; };
+  const org = (s) => String(s.소관기관명 || '').trim(), dept = (s) => String(s.부서명 || '').trim();
+  const lv = [base, (s) => `${base(s)} (${org(s)})`, (s) => `${base(s)} (${[org(s), dept(s)].filter(Boolean).join(' ')})`];
+  let name = new Map(svcs.map((s) => [s, base(s)]));
+  for (const f of lv.slice(1)) { // 겹치는 것만 한 단계씩 더 자세히
+    const n = [...name.values()].reduce((m, v) => m.set(v, (m.get(v) || 0) + 1), new Map());
+    name = new Map(svcs.map((s) => [s, n.get(name.get(s)) > 1 ? f(s) : name.get(s)]));
+  }
+  return new Map(svcs.map((s) => [s.서비스ID, name.get(s)]));
+}
+const svcTitle = (name, year) => `${name} 신청 방법·대상·금액 (${year}) | 정부 지원금 찾기`;
+
+// ---------- lastmod: 내용 해시가 바뀐 날만 갱신 (기준 시각·D-day처럼 매일 바뀌는 글자는 빼고 해시) ----------
+const stableHtml = (html, stamp) => (stamp ? html.split(stamp).join('') : html).replace(/<b>(D-\d+|D-day|마감)<\/b>/g, '');
+function trackPage(prev, html, today, stamp) { // prev: 지난 [해시, 날짜] → 이번 [해시, 날짜]
+  const h = require('crypto').createHash('md5').update(stableHtml(html, stamp)).digest('base64').slice(0, 12);
+  return prev && prev[0] === h ? prev : [h, today];
+}
+// IndexNow로 보낼 경로: 오늘 바뀐 색인 페이지만. 0개거나 한도 초과면 보내지 않음.
+// 첫 실행(기록 없음)은 전부 오늘이라 한 번만 허브(/s/ 아닌 페이지) 먼저 + 한도까지 자른다
+function pingList(indexable, seen, today, first, max = INDEXNOW_MAX) {
+  const changed = indexable.filter((p) => seen[p] && seen[p][1] === today);
+  if (first) return [...changed.filter((p) => !p.startsWith('/s/')), ...changed.filter((p) => p.startsWith('/s/'))].slice(0, max);
+  return changed.length > max ? [] : changed;
+}
+const rfc822 = (s) => { const d = String(s ?? '').replace(/\D/g, '').padEnd(14, '0'); // "20260927151208"(KST) → RFC 822
+  return new Date(`${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}T${d.slice(8, 10)}:${d.slice(10, 12)}:${d.slice(12, 14)}+09:00`).toUTCString(); };
 
 // ---------- 호출 ----------
 const enc = encodeURIComponent(process.env.DATA_GO_KR_KEY || '');
@@ -147,6 +197,10 @@ function page({ title, desc, p, body, noindex, ld }) {
 <meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="${esc(desc)}">
 <meta property="og:url" content="${esc(url)}">
+<meta property="og:type" content="website"><meta property="og:site_name" content="정부 지원금 찾기"><meta property="og:locale" content="ko_KR">
+<meta property="og:image" content="${SITE}/og.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="alternate" type="application/rss+xml" title="정부 지원금 찾기 새 서비스" href="${SITE}/rss.xml">
 <link rel="stylesheet" href="/style.css">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="icon" href="/favicon-32.png" sizes="32x32"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5424435978828190" crossorigin="anonymous"></script>
@@ -162,7 +216,8 @@ ${body}
 <ul class="chips" style="margin:10px 0 0"><li><a href="${BENEFIT}/">혜택 알리미 블로그</a></li><li><a href="${CALC}/eitc/">근로장려금 계산기</a></li><li><a href="${CALC}/parental-leave/">육아휴직 급여 계산기</a></li><li><a href="${CALC}/unemployment/">실업급여 계산기</a></li><li><a href="${CALC}/">한눈 계산기</a></li></ul></div>
 </main>
 <footer>데이터 출처: 행정안전부 대한민국 공공서비스(혜택) 정보 (공공데이터포털), 기준 시각 ${STAMP} KST<br>
-© 정부 지원금 찾기 · <a href="/">홈</a> · <a href="/t/">대상별</a> · <a href="/c/">분야별</a> · <a href="/r/">지역별</a> · <a href="/privacy.html">개인정보처리방침</a></footer>
+© 정부 지원금 찾기 · <a href="/">홈</a> · <a href="/t/">대상별</a> · <a href="/c/">분야별</a> · <a href="/r/">지역별</a> · <a href="/about.html">소개</a> · <a href="/privacy.html">개인정보처리방침</a> · <a href="/rss.xml">RSS</a><br>
+한보기 네트워크: ${NETWORK.map(([u, n]) => `<a href="${u}">${n}</a>`).join(' · ')}</footer>
 </body></html>
 `;
 }
@@ -178,7 +233,10 @@ function svcList(list, today, max = Infinity, attr = () => '') {
 const crumbs = (items) => ({ '@context': 'https://schema.org', '@type': 'BreadcrumbList',
   itemListElement: items.map(([name, p], i) => ({ '@type': 'ListItem', position: i + 1, name, item: SITE + encodeURI(p) })) });
 
-function servicePage(s, today) {
+const plain = (v) => String(v ?? '').replace(/[○●◦▶▷□■◎※❍•ㅇ]/g, ' ').replace(/(^|\s)-\s/g, ' ');
+const regionLabel = (s) => [s.region.sido, s.region.sgg].filter(Boolean).join(' ') || s.소관기관명;
+// ctx: { name: 표시 이름, similar: 같은 지역·분야 서비스, sameName: 같은 서비스명의 다른 지역 서비스 }
+function servicePage(s, today, ctx) {
   const rows = [
     ['지원 대상', s.지원대상], ['선정 기준', s.선정기준], ['지원 내용', s.지원내용], ['신청 방법', s.신청방법], ['신청 기한', s.신청기한],
     ['구비 서류', s.구비서류], ['공무원 확인 서류', s.공무원확인구비서류], ['본인 확인 필요 서류', s.본인확인필요구비서류],
@@ -190,16 +248,23 @@ function servicePage(s, today) {
   const orig = /^https?:\/\//.test(s.상세조회URL || '') ? s.상세조회URL.trim() : `https://www.gov.kr/portal/rcvfvrSvc/dtlEx/${s.서비스ID}`;
   const calc = calcLinks(s);
   const body = `<p class="hint"><a href="/">홈</a> › <a href="${href(fieldP)}">${esc(s.서비스분야 || '분야')}</a>${regP ? ` › <a href="${href(regP)}">${esc([s.region.sido, s.region.sgg].filter(Boolean).join(' '))}</a>` : ''}</p>
-<h1>${esc(s.서비스명)}</h1>
+<h1>${esc(ctx.name)}</h1>
 <p class="lead">${esc(s.소관기관명)}${s.부서명 ? ' ' + esc(s.부서명) : ''} · ${esc(s.지원유형 || '')}${s.deadline ? ` · 신청 마감 ${s.deadline} <b>${ddayLabel(s.deadline, today)}</b>` : ''}</p>
+<div class="card"><b>3줄 요약</b><ul class="rec">
+<li><b>대상</b> ${esc(clip(plain(s.지원대상 || s.선정기준), 90) || '소관기관 문의')}</li>
+<li><b>지원 내용</b> ${esc(clip(plain(s.지원내용), 90) || '원문 참고')}</li>
+<li><b>신청 기한</b> ${s.deadline ? `${s.deadline}까지 <b>${ddayLabel(s.deadline, today)}</b>` : esc(clip(plain(s.신청기한), 50) || '상시 또는 소관기관 문의')}</li></ul></div>
 ${s.서비스목적 || s.서비스목적요약 ? `<div class="card">${text(s.서비스목적 || s.서비스목적요약)}</div>` : ''}
 ${s.tags.length ? `<ul class="chips">${s.tags.map((t) => `<li><a href="${href(tPath(TBY.get(t)))}">${esc(t)} 지원금 모음</a></li>`).join('')}</ul>` : ''}
 <p>${online ? `<a class="cta" href="${esc(online)}" rel="nofollow noopener" target="_blank">👉 온라인 신청하기</a> ` : ''}<a href="${esc(orig)}" rel="nofollow noopener" target="_blank">보조금24 원문 보기 →</a></p>
 ${rows.map(([k, v]) => `<h2>${k}</h2><div class="card">${text(v)}</div>`).join('\n')}
+${ctx.similar.length ? `<h2>${esc(s.region.sido ? regionLabel(s) : '전국')}의 비슷한 지원금</h2>${svcList(ctx.similar, today)}` : ''}
+${ctx.sameName.length ? `<h2>다른 지역의 ${esc(s.서비스명)} (${ctx.sameName.length}곳)</h2><ul class="chips">${ctx.sameName.map((o) => `<li><a href="${href(svcPath(o))}">${esc(regionLabel(o))}</a></li>`).join('')}</ul>` : ''}
+${s.tags.includes('신혼부부') ? `<p>신혼부부 집 구하기: <a href="${HOME}/subscription/">청약 일정</a> · <a href="${HOME}/lh/">LH 공고</a></p>` : ''}
 ${calc.length ? `<p>미리 계산해 보기: ${calc.map(([p, n]) => `<a href="${CALC}/${p}/">${n}</a>`).join(' · ')}</p>` : ''}
 <p class="src">서비스ID ${esc(s.서비스ID)} · 수정일 ${esc(normDate(s.수정일시) || '-')} · 등록일 ${esc(normDate(s.등록일시) || '-')}</p>`;
-  return page({ title: `${s.서비스명} 신청 방법·지원 대상·금액 | 정부 지원금 찾기`, p: svcPath(s), body, noindex: !s.indexable,
-    desc: clip(`${s.서비스명}(${s.소관기관명}): ${s.서비스목적요약 || s.지원내용 || ''} 지원 대상, 선정 기준, 신청 방법과 기한을 정리했어요.`, 155),
+  return page({ title: svcTitle(ctx.name, today.slice(0, 4)), p: svcPath(s), body, noindex: !s.indexable,
+    desc: clip(`${ctx.name}(${s.소관기관명}): ${s.서비스목적요약 || s.지원내용 || ''} 지원 대상, 선정 기준, 신청 방법과 기한을 정리했어요.`, 155),
     ld: crumbs([['홈', '/'], [s.서비스분야 || '분야', fieldP], [s.서비스명, svcPath(s)]]) });
 }
 
@@ -235,17 +300,30 @@ async function main() {
   fs.rmSync(OUT, { recursive: true, force: true });
   const indexable = [];
   let pages = 0;
+  let pagesDb = null; try { if (!FIX) pagesDb = JSON.parse(fs.readFileSync(STATE, 'utf8')); } catch {}
+  const seenPages = {};
   const write = (p, html) => { // 색인 여부는 페이지의 robots 메타로 판단
     const f = path.join(OUT, p.endsWith('/') ? p + 'index.html' : p);
     fs.mkdirSync(path.dirname(f), { recursive: true });
     fs.writeFileSync(f, html);
+    seenPages[p] = trackPage(pagesDb?.[p], html, today, STAMP);
     pages++;
     if (!html.includes('content="noindex')) indexable.push(p);
   };
   fs.mkdirSync(path.join(OUT, 'data'), { recursive: true });
-  for (const f of ['style.css', 'CNAME', 'home.js', 'favicon.svg', 'favicon-32.png', 'apple-touch-icon.png']) fs.copyFileSync(path.join(__dirname, f), path.join(OUT, f));
+  fs.writeFileSync(path.join(OUT, `${INDEXNOW_KEY}.txt`), INDEXNOW_KEY);
+  for (const f of ['style.css', 'CNAME', 'home.js', 'favicon.svg', 'favicon-32.png', 'apple-touch-icon.png', 'og.png']) fs.copyFileSync(path.join(__dirname, f), path.join(OUT, f));
 
-  for (const s of svcs) write(svcPath(s), servicePage(s, today));
+  // 서비스 페이지 문맥: 같은 지역·분야 5개(최근 등록 순 — 조회수 순은 매일 바뀌어 lastmod가 흔들림), 같은 이름의 다른 지역
+  const names = svcNames(svcs);
+  const newestFirst = (a, b) => String(b.등록일시 || '').localeCompare(String(a.등록일시 || '')) || a.서비스ID.localeCompare(b.서비스ID);
+  const group = (key) => svcs.reduce((m, s) => { const k = key(s); (m.get(k) || m.set(k, []).get(k)).push(s); return m; }, new Map());
+  const byRegField = group((s) => `${s.region.sido}|${s.region.sgg}|${s.서비스분야}`), byName = group((s) => String(s.서비스명).trim());
+  for (const l of byRegField.values()) l.sort(newestFirst);
+  for (const l of byName.values()) l.sort((a, b) => regionLabel(a).localeCompare(regionLabel(b), 'ko'));
+  for (const s of svcs) write(svcPath(s), servicePage(s, today, { name: names.get(s.서비스ID),
+    similar: byRegField.get(`${s.region.sido}|${s.region.sgg}|${s.서비스분야}`).filter((o) => o !== s && o.indexable).slice(0, 5),
+    sameName: byName.get(String(s.서비스명).trim()).filter((o) => o !== s) }));
 
   const hasIdx = (s) => s.indexable; // 색인할 서비스가 하나도 없는 목록 페이지는 noindex
   // 분야
@@ -377,16 +455,44 @@ ${GROUPS.map((g) => `<h3>${esc(g)}</h3>${tChips(g)}`).join('\n')}</div>
 <p>방문 통계를 위해 Google 애널리틱스를 사용해요. 쿠키로 방문 페이지·기기·대략적 지역 같은 익명 통계를 모으며, 브라우저 설정에서 쿠키를 거부하거나 <a href="https://tools.google.com/dlpage/gaoptout" rel="nofollow">Google 애널리틱스 차단 부가기능</a>을 쓸 수 있어요.</p>
 <p>문의: 혜택 알리미 블로그(<a href="${BENEFIT}">benefit.hanbogi.com</a>) 방명록</p>
 <p class="hint">시행일: 2026년 9월 27일</p></div>` }));
+  write('/about.html', page({ title: '소개 | 정부 지원금 찾기', p: '/about.html', desc: '정부 지원금 찾기(grant.hanbogi.com)의 운영 목적, 데이터 출처와 갱신 주기, 면책 안내.',
+    body: `<p class="hint"><a href="/">홈</a> › 소개</p><h1>정부 지원금 찾기 소개</h1>
+<div class="card"><h2 style="margin-top:0">운영 목적</h2>
+<p>중앙부처·지자체·공공기관이 운영하는 지원금과 공공서비스 ${comma(svcs.length)}개를 대상·지역·분야·나이·소득으로 쉽게 찾도록 모아 둔 사이트예요. 지자체마다 이름이 같은 지원금(예: 출산장려금)을 지역별로 비교하고, 신청 마감이 가까운 서비스를 먼저 보여 드려요.</p>
+<h2>데이터 출처와 갱신 주기</h2>
+<p>행정안전부 「대한민국 공공서비스(혜택) 정보」 API(<a href="https://www.data.go.kr/data/15113968/openapi.do" rel="nofollow">공공데이터포털</a>, 보조금24와 같은 자료)를 <b>매일 새벽</b> 받아 다시 만들어요. 지금 보이는 자료의 기준 시각은 ${STAMP} KST예요.</p>
+<p>3줄 요약, 대상 분류(신혼부부·임산부·청년 등), 신청 마감 D-day, 지역 구분은 원문 문구를 바탕으로 자동으로 만든 것이라 실제와 다를 수 있어요.</p>
+<h2>면책</h2>
+<p>이 사이트는 정부·지자체의 공식 사이트가 아니며, 정보는 참고용이에요. 자격·금액·기한은 바뀔 수 있으니 <b>신청 전에 보조금24 원문과 소관기관에서 꼭 확인</b>하세요. 이 사이트의 정보를 근거로 한 결정에 대해 책임지지 않아요.</p>
+<h2>운영</h2>
+<p>운영: 한보기 · 문의: <a href="${BENEFIT}/guestbook">혜택 알리미 방명록</a></p></div>` }));
   write('/404.html', page({ title: '페이지를 찾을 수 없어요 | 정부 지원금 찾기', p: '/404.html', desc: '페이지를 찾을 수 없어요', noindex: true,
     body: '<h1>페이지를 찾을 수 없어요</h1><p class="lead">주소가 바뀌었거나 종료된 서비스일 수 있어요.</p><p><a href="/">홈에서 검색하기</a> · <a href="/c/">분야별</a> · <a href="/r/">지역별</a></p>' }));
 
   fs.writeFileSync(path.join(OUT, 'robots.txt'), `User-agent: *\nAllow: /\nSitemap: ${SITE}/sitemap.xml\n`);
-  const sm = sitemaps(indexable, today);
+  const sm = sitemaps(indexable, (p) => seenPages[p][1]);
+
+  // 네이버용 RSS: 최근 등록된 색인 서비스 50개
+  const rss = recentNew.filter((s) => s.indexable).slice(0, 50);
+  fs.writeFileSync(path.join(OUT, 'rss.xml'), `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>정부 지원금 찾기 — 새로 등록된 지원금</title><link>${SITE}/</link><description>보조금24에 새로 등록된 정부·지자체 지원금과 공공서비스</description><language>ko</language><lastBuildDate>${now.toUTCString()}</lastBuildDate>
+${rss.map((s) => `<item><title>${esc(names.get(s.서비스ID))}</title><link>${SITE}${svcPath(s)}</link><guid>${SITE}${svcPath(s)}</guid><pubDate>${rfc822(s.등록일시)}</pubDate><description>${esc(clip(`${s.소관기관명}: ${s.서비스목적요약 || s.지원내용 || ''}`, 200))}</description></item>`).join('\n')}
+</channel></rss>
+`);
+
+  // 다음 실행이 이어 쓸 lastmod 기록 + IndexNow 목록 (워크플로가 배포 뒤 전송·커밋)
+  if (!FIX) {
+    fs.mkdirSync(path.dirname(STATE), { recursive: true });
+    fs.writeFileSync(STATE, `{\n${Object.entries(seenPages).map(([p, v]) => `${JSON.stringify(p)}:${JSON.stringify(v)}`).join(',\n')}\n}\n`); // 한 줄에 하나 → git diff 작게
+  }
+  const ping = pingList(indexable, seenPages, today, !pagesDb);
+  fs.writeFileSync(path.join(__dirname, 'indexnow.json'), JSON.stringify(ping.map((p) => SITE + encodeURI(p))));
   for (const [f, c] of Object.entries(sm)) fs.writeFileSync(path.join(OUT, f), c);
 
-  console.log(`완료: 서비스 ${svcs.length} (색인 ${svcs.filter((s) => s.indexable).length}), 페이지 ${pages}개 (사이트맵 ${indexable.length}, 파일 ${Object.keys(sm).length}), 마감 임박 ${soon.length}`);
+  console.log(`완료: 서비스 ${svcs.length} (색인 ${svcs.filter((s) => s.indexable).length}), 페이지 ${pages}개 (사이트맵 ${indexable.length}, 파일 ${Object.keys(sm).length}), 마감 임박 ${soon.length}, 오늘 바뀐 색인 페이지 ${indexable.filter((p) => seenPages[p][1] === today).length} → IndexNow ${ping.length}${pagesDb ? '' : ' (첫 실행)'}`);
   console.log('API 호출 수:', FIX ? '(fixtures)' : calls);
 }
 
-module.exports = { parseDeadline, regionOf, incomeMask, isMeaningful, isOnline, sitemaps, calcLinks, normDate, slug, targetNoindex, urgentFirst, TARGET_MIN };
+module.exports = { parseDeadline, regionOf, incomeMask, isMeaningful, isOnline, sitemaps, calcLinks, normDate, slug, targetNoindex, urgentFirst, TARGET_MIN,
+  whereOf, svcNames, svcTitle, stableHtml, trackPage, pingList, rfc822 };
 if (require.main === module) main().catch((e) => { console.error('❌ 빌드 실패:', e.message); process.exit(e.auth ? 3 : 1); });
