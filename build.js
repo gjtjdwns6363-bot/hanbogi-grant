@@ -14,7 +14,7 @@ const BENEFIT = 'https://benefit.hanbogi.com';
 const HOME = 'https://home.hanbogi.com';
 const INDEXNOW_KEY = 'e386846d4b6f939fd1b440af9728c599';
 const INDEXNOW_MAX = 10000;
-const NETWORK = [['https://calc.hanbogi.com', '계산기'], [HOME, '부동산 알리미'], [SITE, '정부 지원금 찾기'], [BENEFIT, '혜택 알리미'],
+const NETWORK = [['https://calc.hanbogi.com', '계산기'], [HOME, '부동산 알리미'], [SITE, '정부 지원금 찾기'], ['https://talk.hanbogi.com', '여행회화'], [BENEFIT, '혜택 알리미'],
   ['https://license.hanbogi.com', '자격증 한눈에'], ['https://hanbogi.com', '오늘의 게임'], ['https://stay.hanbogi.com', '오늘의 숙소'], ['https://gadget.hanbogi.com', '기기 비교소']];
 const STATE = path.join(__dirname, 'state', 'pages.json'); // 페이지별 [내용 해시, lastmod] — 워크플로가 main에 커밋해 다음 실행으로 이어 감
 const API = 'https://api.odcloud.kr/api/gov24/v3';
