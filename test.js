@@ -1,7 +1,7 @@
 // node test.js — 핵심 순수 함수 검사
 const assert = require('assert');
 const { parseDeadline, regionOf, incomeMask, isMeaningful, isOnline, sitemaps, calcLinks, normDate, slug, targetNoindex, urgentFirst, TARGET_MIN,
-  whereOf, svcNames, svcTitle, stableHtml, trackPage, pingList, rfc822 } = require('./build.js');
+  refineRegion, whereOf, svcNames, svcTitle, stableHtml, trackPage, pingList, rfc822 } = require('./build.js');
 const { targetsOf, TARGETS } = require('./targets.js');
 
 // 신청기한
@@ -29,6 +29,25 @@ assert.deepStrictEqual(regionOf('강원도 춘천시'), { sido: '강원특별자
 assert.deepStrictEqual(regionOf('전라북도 전주시 완산구'), { sido: '전북특별자치도', sgg: '전주시 완산구' });
 assert.deepStrictEqual(regionOf('서울특별시교육청'), { sido: '서울특별시', sgg: '' });
 assert.deepStrictEqual(regionOf('부산광역시 해운대구 보건소'), { sido: '부산광역시', sgg: '해운대구' });
+
+// 붙여 쓴 기관명 지역 보정
+const IDX = new Map([["관악구", new Set(["서울특별시"])], ["용산구", new Set(["서울특별시"])], ["중구", new Set(["서울특별시", "부산광역시"])],
+  ["천안시", new Set(["충청남도"])], ["광주시", new Set(["경기도"])], ["수원시", new Set(["경기도"])], ["영월군", new Set(["강원특별자치도"])]]);
+const rr = (o) => refineRegion(o, regionOf(o), IDX);
+assert.deepStrictEqual(rr("서울특별시관악구시설관리공단"), { sido: "서울특별시", sgg: "관악구" });
+assert.deepStrictEqual(rr("용산구시설관리공단"), { sido: "서울특별시", sgg: "용산구" });
+assert.deepStrictEqual(rr("천안도시공사"), { sido: "충청남도", sgg: "천안시" }); // 시 뗀 이름
+assert.deepStrictEqual(rr("강원특별자치도영월의료원"), { sido: "강원특별자치도", sgg: "영월군" });
+assert.deepStrictEqual(rr("(재)수원시여성가족재단"), { sido: "경기도", sgg: "수원시" });
+assert.deepStrictEqual(rr("서울시설공단"), { sido: "서울특별시", sgg: "" }); // 약칭+시
+assert.deepStrictEqual(rr("경기신용보증재단"), { sido: "경기도", sgg: "" }); // 약칭+지역 공공기관 꼴
+assert.deepStrictEqual(rr("중구시설관리공단"), { sido: "", sgg: "" }); // 여러 시도에 있는 구는 모름
+assert.deepStrictEqual(rr("서울올림픽기념국민체육진흥공단"), { sido: "", sgg: "" }); // 전국 기관
+assert.deepStrictEqual(rr("광주신용보증재단"), { sido: "", sgg: "" }); // 광주광역시 vs 경기 광주시 모호
+assert.deepStrictEqual(rr("재단법인광주시문화재단"), { sido: "경기도", sgg: "광주시" });
+assert.deepStrictEqual(rr("한국전력공사"), { sido: "", sgg: "" });
+assert.deepStrictEqual(rr("경기도교육청"), { sido: "경기도", sgg: "" });
+assert.deepStrictEqual(rr("서울특별시 강남구"), { sido: "서울특별시", sgg: "강남구" }); // 이미 있으면 그대로
 
 // 대상 분류 (targets.js)
 const S = (o) => ({ 서비스명: '', 지원대상: '', 선정기준: '', 사용자구분: '개인', 서비스분야: '', ...o });

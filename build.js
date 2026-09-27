@@ -65,6 +65,35 @@ function regionOf(org) {
   return { sido: SIDO_ALIAS[hit] || hit, sgg };
 }
 
+// 띄어쓰기 없는 기관명("서울특별시관악구시설관리공단", "용산구시설관리공단", "천안도시공사") 보정.
+// idx: 띄어 쓴 기관명에서 모은 Map(시군구 첫 토큰 → Set(시도)). 시도 없이 시군구로 시작하면 한 시도에만 있는 이름만 인정.
+// ponytail: 시도 약칭(서울·경기…)은 뒤에 시/도·시군구가 오거나 지역 공공기관 꼴(재단·공사·공단…)일 때만 — 전국 기관(한국·국민·국제…) 오탐 방지 휴리스틱
+const SIDO_STEMS = new Set(SIDOS.map((n) => n.slice(0, 2))); // "광주"도시공사 → 광주광역시인지 경기 광주시인지 모름
+function refineRegion(org, r, idx) {
+  if (r.sgg) return r;
+  const o = String(org ?? '').trim().replace(/^(\(재\)|\(사\)|\(주\)|재단법인|사단법인)\s*/, '');
+  const sggs = [...idx.keys()].sort((a, b) => b.length - a.length);
+  const findSgg = (rest, sido) => sggs.find((g) => (sido ? idx.get(g).has(sido) : idx.get(g).size === 1) &&
+    (rest.startsWith(g) || (g.length > 2 && !SIDO_STEMS.has(g.slice(0, -1)) && rest.startsWith(g.slice(0, -1))))) || '';
+  const hit = (sido, g) => ({ sido, sgg: g });
+  if (r.sido) { // 시도는 맞게 찾았고 뒤가 붙어 있는 경우
+    const full = [...SIDOS, ...Object.keys(SIDO_ALIAS)].sort((a, b) => b.length - a.length).find((n) => o.startsWith(n));
+    const g = full ? findSgg(o.slice(full.length).trim(), r.sido) : '';
+    return g ? hit(r.sido, g) : r;
+  }
+  const present = new Set([...idx.values()].flatMap((s) => [...s]));
+  for (const sido of present) {
+    const short = sidoShort(sido);
+    if (!o.startsWith(short)) continue;
+    const after = o.slice(short.length), rest = after.replace(/^(특별자치시|특별자치도|특별시|광역시|시|도)/, '');
+    const g = findSgg(rest, sido);
+    if (g) return hit(sido, g);
+    if (rest !== after || (/(재단|공사|공단|진흥원|의료원|연구원|센터)$/.test(o) && !/한국|국민|국제|올림픽/.test(o))) return hit(sido, '');
+  }
+  const g = findSgg(o, '');
+  return g ? hit([...idx.get(g)][0], g) : r;
+}
+
 // 대상 분류(신혼부부·임산부·중소기업 …)는 targets.js 한 곳에 모아 둔다
 const { TARGETS, GROUPS, targetsOf } = require('./targets.js');
 const tPath = (t) => `/t/${t.slug}/`;
@@ -295,6 +324,11 @@ async function main() {
     s.indexable = isMeaningful(s);
     return s;
   });
+  // 띄어 쓴 기관명에서 시군구 목록을 모아, 붙여 쓴 기관명의 지역을 보정
+  const sggIdx = new Map();
+  for (const s of svcs) if (s.region.sgg) { const g = s.region.sgg.split(" ")[0]; (sggIdx.get(g) || sggIdx.set(g, new Set()).get(g)).add(s.region.sido); }
+  let gained = 0;
+  for (const s of svcs) { const r = refineRegion(s.소관기관명, s.region, sggIdx); if (r !== s.region) { gained++; s.region = r; } }
 
   // ---------- 쓰기 ----------
   fs.rmSync(OUT, { recursive: true, force: true });
@@ -489,10 +523,10 @@ ${rss.map((s) => `<item><title>${esc(names.get(s.서비스ID))}</title><link>${S
   fs.writeFileSync(path.join(__dirname, 'indexnow.json'), JSON.stringify(ping.map((p) => SITE + encodeURI(p))));
   for (const [f, c] of Object.entries(sm)) fs.writeFileSync(path.join(OUT, f), c);
 
-  console.log(`완료: 서비스 ${svcs.length} (색인 ${svcs.filter((s) => s.indexable).length}), 페이지 ${pages}개 (사이트맵 ${indexable.length}, 파일 ${Object.keys(sm).length}), 마감 임박 ${soon.length}, 오늘 바뀐 색인 페이지 ${indexable.filter((p) => seenPages[p][1] === today).length} → IndexNow ${ping.length}${pagesDb ? '' : ' (첫 실행)'}`);
+  console.log(`완료: 서비스 ${svcs.length} (색인 ${svcs.filter((s) => s.indexable).length}), 페이지 ${pages}개 (사이트맵 ${indexable.length}, 파일 ${Object.keys(sm).length}), 마감 임박 ${soon.length}, 지역 보정 ${gained}, 오늘 바뀐 색인 페이지 ${indexable.filter((p) => seenPages[p][1] === today).length} → IndexNow ${ping.length}${pagesDb ? '' : ' (첫 실행)'}`);
   console.log('API 호출 수:', FIX ? '(fixtures)' : calls);
 }
 
 module.exports = { parseDeadline, regionOf, incomeMask, isMeaningful, isOnline, sitemaps, calcLinks, normDate, slug, targetNoindex, urgentFirst, TARGET_MIN,
-  whereOf, svcNames, svcTitle, stableHtml, trackPage, pingList, rfc822 };
+  refineRegion, whereOf, svcNames, svcTitle, stableHtml, trackPage, pingList, rfc822 };
 if (require.main === module) main().catch((e) => { console.error('❌ 빌드 실패:', e.message); process.exit(e.auth ? 3 : 1); });
