@@ -1,0 +1,59 @@
+name: build
+
+on:
+  schedule:
+    - cron: '30 20 * * *' # 매일 05:30 KST
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      skip: ${{ steps.build.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node test.js
+      - id: build
+        run: |
+          set +e
+          node build.js
+          c=$?
+          if [ $c -eq 3 ]; then
+            echo "::warning::API 인증 실패(키 없음·미승인) — 배포를 건너뛰고 기존 사이트를 유지해요"
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          exit $c
+        env:
+          DATA_GO_KR_KEY: ${{ secrets.DATA_GO_KR_KEY }}
+      - if: steps.build.outputs.skip != '1'
+        uses: actions/configure-pages@v5
+      - if: steps.build.outputs.skip != '1'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+  deploy:
+    needs: build
+    if: needs.build.outputs.skip != '1'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

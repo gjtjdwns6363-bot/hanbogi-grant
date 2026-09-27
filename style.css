@@ -1,0 +1,77 @@
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1b2430;--muted:#5d6b7a;--line:#e3e7ec;--brand:#1d5c63;--accent:#e8452c;--ok:#1a7f4b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;line-height:1.6}
+a{color:var(--brand)}
+header{background:var(--brand);color:#fff;padding:14px 16px}
+header a{color:#fff;text-decoration:none;font-weight:700}
+main{max-width:720px;margin:0 auto;padding:16px}
+h1{font-size:1.45rem;line-height:1.35;margin:.4em 0}
+h2{font-size:1.15rem;margin:1.6em 0 .5em}
+.lead{color:var(--muted);margin:0 0 1em}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+label{display:block;font-weight:600;margin:14px 0 6px}
+.hint{font-size:.85rem;color:var(--muted);font-weight:400}
+input[type=number],input[type=text],select{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;font-size:1rem;background:#fff}
+.seg{display:flex;gap:8px;flex-wrap:wrap}
+.seg label{flex:1;min-width:96px;margin:0;border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center;cursor:pointer;font-weight:500}
+.seg input{display:none}
+.seg input:checked+span{color:var(--brand);font-weight:700}
+.seg label:has(input:checked){border-color:var(--brand);background:#eaf4f4}
+button{width:100%;margin-top:18px;padding:14px;border:0;border-radius:12px;background:var(--accent);color:#fff;font-size:1.05rem;font-weight:700;cursor:pointer}
+.result{display:none}
+.result.show{display:block}
+.big{font-size:2rem;font-weight:800;color:var(--ok)}
+table{width:100%;border-collapse:collapse;font-size:.92rem}
+th,td{border:1px solid var(--line);padding:8px;text-align:left}
+th{background:#eef2f5}
+.warn{background:#fff7e6;border:1px solid #ffd591;border-radius:10px;padding:10px 12px;font-size:.9rem}
+.tools{display:grid;gap:12px}
+.tools a{display:block;text-decoration:none;color:inherit}
+footer{max-width:720px;margin:24px auto;padding:16px;color:var(--muted);font-size:.85rem}
+@media (prefers-color-scheme:dark){:root{--bg:#12161b;--card:#1b2128;--ink:#e8edf2;--muted:#9aa7b4;--line:#2b333d}th{background:#222a33}.seg label:has(input:checked){background:#16302f}.warn{background:#2a2414;border-color:#5c4a1a}input[type=number],input[type=text],select{background:#12161b;color:var(--ink)}}
+.tools .card{margin:0}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.scroll table{min-width:560px}
+td.n,th.n{text-align:right;white-space:nowrap}
+.chips{display:flex;flex-wrap:wrap;gap:8px;padding:0;list-style:none}
+.chips a{display:inline-block;border:1px solid var(--line);background:var(--card);border-radius:999px;padding:6px 12px;text-decoration:none}
+.chips .c{color:var(--muted);font-size:.8rem}
+.src{font-size:.8rem;color:var(--muted)}
+/* 신고가·오늘 실거래가 */
+:root{--up:#d6322a;--down:#1f5fbf}
+.up{color:var(--up);font-weight:700}.down{color:var(--down);font-weight:700}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+.tabs button,.menu button,button.more,#go{width:auto;margin:0;padding:8px 14px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--ink);font-size:.95rem;font-weight:600}
+.tabs button[aria-selected=true],.menu button[aria-pressed=true]{background:var(--brand);border-color:var(--brand);color:#fff}
+.tabs button[aria-selected=true] .c{color:#dfeeee}
+.tabs select{width:auto;flex:1;min-width:120px;padding:8px}
+button.more{display:block;margin:12px auto;padding:10px 28px}
+#go{background:var(--accent);border-color:var(--accent);color:#fff;align-self:end;padding:12px 18px}
+.rec{margin:4px 0 0;padding-left:18px;font-size:.9rem}
+.cta{display:block;background:var(--card);border:1px solid var(--brand);border-radius:12px;padding:12px 14px;text-decoration:none;font-weight:700}
+.menu{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin:12px 0}
+.menu button{border-radius:10px;padding:10px 8px}
+.filters{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.filters label{margin:0;font-size:.85rem}
+.filters select{padding:9px;margin-top:4px}
+.sum{font-size:.95rem;margin:12px 0 4px}
+.b{display:inline-block;font-size:.75rem;font-weight:700;border:1px solid var(--line);border-radius:6px;padding:1px 6px;margin-right:4px;background:var(--card)}
+.b.t{border-color:var(--brand);color:var(--brand)}.b.j,.b.w{border-color:var(--muted);color:var(--muted)}
+.b.g{border-color:#8a5cf6;color:#8a5cf6}.b.fire{border-color:var(--up);color:var(--up)}.b.x{background:var(--muted);color:var(--card);border-color:var(--muted)}
+.deals{list-style:none;padding:0;margin:8px 0}
+.deal{display:grid;grid-template-columns:76px 1fr;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin:10px 0}
+.dl{text-align:center;color:var(--brand)}.rank{display:block;font-size:.95rem;color:var(--ink);margin-bottom:4px}
+.spark{display:block;margin:0 auto;font-size:.7rem}
+.dm h3{margin:0;font-size:1.1rem}.dm p{margin:2px 0}.addr{font-size:.8rem}
+.price{font-size:1.5rem;font-weight:800}.price span{font-size:.9rem}
+.chips.sm{margin:4px 0;gap:4px}.chips.sm li{border:1px solid var(--line);border-radius:999px;padding:1px 8px;font-size:.8rem}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin:6px 0 0;font-size:.85rem}.kv dt{color:var(--muted)}.kv dd{margin:0}
+@media (prefers-color-scheme:dark){:root{--up:#ff6b61;--down:#6ea8ff}}
+[hidden]{display:none!important}
+/* 지원금 찾기 */
+.svc{list-style:none;padding:0;margin:8px 0}
+.svc li{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:8px 0}
+.svc li>a{font-weight:700}
+.sm{font-size:.85rem;color:var(--muted)}
+.filters input[type=text],.filters input[type=number]{padding:9px;margin-top:4px}
+.filters label.chk{display:flex;align-items:center;gap:6px;align-self:end;padding:9px 0}
