@@ -110,9 +110,12 @@ const INCOME = ['중위소득 50% 이하', '51~75%', '76~100%', '101~200%', '200
 const incomeMask = (c) => ['JA0201', 'JA0202', 'JA0203', 'JA0204', 'JA0205'].reduce((m, k, i) => m | (c?.[k] === 'Y' ? 1 << i : 0), 0);
 const isOnline = (s) => /^https?:\/\//.test(s.온라인신청사이트URL || '') || /온라인|인터넷/.test(s.신청방법 || '');
 
-// 색인 기준: 지원대상·선정기준·지원내용 합쳐 글자 40자 이상, 지원내용 10자 이상
-const letters = (s) => String(s ?? '').replace(/[\s\p{P}\p{S}]/gu, '').length;
-const isMeaningful = (s) => letters(s.지원내용) >= 10 && letters(`${s.지원대상}${s.선정기준}${s.지원내용}`) >= 40;
+// 색인 기준: 지원대상·선정기준·지원내용 합쳐 글자 CORE_MIN자 이상, 지원내용 10자 이상
+// 2026-11-04: 40→60자. 선정기준이 지원대상과 같은 글이면 한 번만 센다 — 한 줄짜리 서비스가 두 번 세져 색인되던 얇은 페이지(표본 375쪽 중 약 17%)를 noindex
+const CORE_MIN = 60;
+const SVC_NOINDEX = true; // 개별 서비스(/s/) 페이지 전부 검색 제외(2026-11-04). 되돌리려면 false
+const strip = (s) => String(s ?? '').replace(/[\s\p{P}\p{S}]/gu, ''), letters = (s) => strip(s).length;
+const isMeaningful = (s) => letters(s.지원내용) >= 10 && letters(`${s.지원대상}${strip(s.선정기준) === strip(s.지원대상) ? '' : s.선정기준}${s.지원내용}`) >= CORE_MIN;
 
 function sitemaps(paths, lastmod, max = SITEMAP_MAX) { // lastmod: 경로 → 날짜 함수. max 초과면 sitemap-N.xml + 색인
   if (typeof lastmod !== 'function') { const d = lastmod; lastmod = () => d; }
@@ -292,7 +295,9 @@ ${ctx.sameName.length ? `<h2>다른 지역의 ${esc(s.서비스명)} (${ctx.same
 ${s.tags.includes('신혼부부') ? `<p>신혼부부 집 구하기: <a href="${HOME}/subscription/">청약 일정</a> · <a href="${HOME}/lh/">LH 공고</a></p>` : ''}
 ${calc.length ? `<p>미리 계산해 보기: ${calc.map(([p, n]) => `<a href="${CALC}/${p}/">${n}</a>`).join(' · ')}</p>` : ''}
 <p class="src">서비스ID ${esc(s.서비스ID)} · 수정일 ${esc(normDate(s.수정일시) || '-')} · 등록일 ${esc(normDate(s.등록일시) || '-')}</p>`;
-  return page({ title: svcTitle(ctx.name, today.slice(0, 4)), p: svcPath(s), body, noindex: !s.indexable,
+  // 2026-11-04 앱 주인 "지원금 페이지 세게 정리": 개별 서비스 페이지는 보조금24 글을 옮긴 것이라 전부 noindex(사이트맵에서도 빠진다).
+  //   구글에는 지역·분야·대상 모음 페이지만 낸다. s.indexable은 모음 페이지 색인 판단(hasIdx)에 계속 쓴다.
+  return page({ title: svcTitle(ctx.name, today.slice(0, 4)), p: svcPath(s), body, noindex: SVC_NOINDEX || !s.indexable,
     desc: clip(`${ctx.name}(${s.소관기관명}): ${s.서비스목적요약 || s.지원내용 || ''} 지원 대상, 선정 기준, 신청 방법과 기한을 정리했어요.`, 155),
     ld: crumbs([['홈', '/'], [s.서비스분야 || '분야', fieldP], [s.서비스명, svcPath(s)]]) });
 }
