@@ -235,7 +235,7 @@ function page({ title, desc, p, body, noindex, ld }) {
 <link rel="alternate" type="application/rss+xml" title="정부 지원금 찾기 새 서비스" href="${SITE}/rss.xml">
 <link rel="stylesheet" href="/style.css">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="icon" href="/favicon-32.png" sizes="32x32"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5424435978828190" crossorigin="anonymous"></script>
+<!-- adsense-off 2026-11-18: 애드센스 심사 중 제거, 승인 후 복원 -->
 <meta name="naver-site-verification" content="b1be46046dc6d5116c831e7ca56190a9c8a6067a" />
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-19F8RF6971"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag("js",new Date());gtag("config","G-19F8RF6971");</script>${ld ? `\n<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>` : ''}
 </head>
