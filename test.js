@@ -173,3 +173,16 @@ assert.strictEqual(slug('주거·자립'), '주거-자립');
 assert.strictEqual(slug('수원시 장안구'), '수원시-장안구');
 
 console.log('test.js: 모두 통과');
+
+// 2026-11-23 SEO 점검: 마감일 연도 표시·자리표시 기한·같은 이름 합치기
+{
+  const { shortDate, farDeadline, mergeSame } = require('./build.js');
+  assert.strictEqual(shortDate('2026-12-31', '2026-11-23'), '12.31');
+  assert.strictEqual(shortDate('2025-02-16', '2026-11-23'), '25.02.16');
+  assert.strictEqual(farDeadline('2046-12-31', '2026-11-23'), true);
+  assert.strictEqual(farDeadline('2027-12-31', '2026-11-23'), false);
+  assert.strictEqual(farDeadline('', '2026-11-23'), false);
+  const m = mergeSame([{ 서비스명: '난임 약제비', a: 1 }, { 서비스명: '출산', a: 2 }, { 서비스명: '(화성시효행구)난임 약제비 신청', a: 3 }]);
+  assert.strictEqual(m.length, 2); assert.strictEqual(m[0].sib.length, 1); assert.strictEqual(m[1].sib, undefined);
+}
+console.log('SEO 점검 추가 검사 통과');

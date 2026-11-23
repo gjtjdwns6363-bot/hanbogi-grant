@@ -98,6 +98,7 @@ function refineRegion(org, r, idx) {
 const { TARGETS, GROUPS, targetsOf } = require('./targets.js');
 const tPath = (t) => `/t/${t.slug}/`;
 const TBY = new Map(TARGETS.map((t) => [t.label, t]));
+const REGION_MIN = 10; // 시군구 페이지는 서비스가 이 개수 미만이면 noindex (2026-11-23 SEO 점검)
 const TARGET_MIN = 3; // 랜딩 페이지는 이 개수 미만이거나 색인할 서비스가 없으면 noindex
 const targetNoindex = (l) => l.length < TARGET_MIN || !l.some((s) => s.indexable);
 // 대상 랜딩 정렬: 마감 임박(오늘 이후 마감이 가까운 순) → 나머지는 최근 수정 순
@@ -255,11 +256,26 @@ ${body}
 }
 const href = (p) => esc(encodeURI(p));
 const svcPath = (s) => `/s/${s.서비스ID}/`;
+const farDeadline = (d, today) => !!d && Date.parse(d) - Date.parse(today) > 3 * 365 * DAY;
 const ddayLabel = (d, today) => { if (!d) return ''; const n = Math.round((Date.parse(d) - Date.parse(today)) / DAY); return n < 0 ? '마감' : n === 0 ? 'D-day' : `D-${n}`; };
-function svcList(list, today, max = Infinity, attr = () => '') {
+// 목록의 마감일: 올해면 "12.31", 다른 해면 "25.02.16"
+const shortDate = (d, today) => (d.slice(0, 4) === today.slice(0, 4) ? d.slice(5) : d.slice(2)).replace(/-/g, '.');
+// 같은 서비스명 묶기: 첫 항목만 남기고 나머지는 sib로 (지역 페이지의 구별 보건소 사업 등)
+const sibLabel = (o) => String(o.서비스명).match(/^\s*\(([^)]+)\)/)?.[1] || o.부서명 || o.소관기관명;
+function mergeSame(list) {
+  const first = new Map();
+  // 키: 괄호 속 지역 표시·띄어쓰기·끝의 "신청"을 빼고 비교 ("(화성시 동탄구)난임부부 시술 약제비 지원" = "(화성시효행구)난임부부 시술 약제비 지원 신청")
+  const key = (n) => String(n).replace(/\([^)]*\)/g, '').replace(/\s+/g, '').replace(/신청$/, '');
+  for (const s of list) { const k = key(s.서비스명); first.has(k) ? first.get(k).push(s) : first.set(k, [s]); }
+  return [...first.values()].map(([s, ...sib]) => (sib.length ? { ...s, sib } : s));
+}
+function svcList(list, today, max = Infinity, attr = () => '', merge = false) {
   if (!list.length) return '<p class="hint">해당 서비스가 없어요.</p>';
-  return '<ul class="svc">' + list.slice(0, max).map((s) => `<li${attr(s)}><a href="${href(svcPath(s))}">${esc(s.서비스명)}</a>` +
-    ` <span class="hint">${esc(s.소관기관명)}${s.deadline ? ` · ~${s.deadline.slice(5).replace('-', '.')} <b>${ddayLabel(s.deadline, today)}</b>` : ''}</span>` +
+  const over = (s) => !!s.deadline && s.deadline < today; // 마감 지난 항목은 맨 아래 (순서는 유지)
+  const l = (merge ? mergeSame(list) : list);
+  return '<ul class="svc">' + [...l.filter((s) => !over(s)), ...l.filter(over)].slice(0, max).map((s) => `<li${attr(s)}><a href="${href(svcPath(s))}">${esc(s.서비스명)}</a>` +
+    ` <span class="hint">${esc(s.소관기관명)}${s.sib ? ` 외 ${s.sib.length}곳` : ''}${s.deadline ? ` · ~${shortDate(s.deadline, today)} <b>${ddayLabel(s.deadline, today)}</b>` : ''}</span>` +
+    (s.sib ? ` <span class="hint">(${s.sib.map((o) => `<a href="${href(svcPath(o))}">${esc(sibLabel(o))}</a>`).join(' · ')})</span>` : '') +
     (s.서비스목적요약 ? `<br><span class="sm">${esc(clip(s.서비스목적요약, 70))}</span>` : '') + '</li>').join('') + '</ul>';
 }
 const crumbs = (items) => ({ '@context': 'https://schema.org', '@type': 'BreadcrumbList',
@@ -285,7 +301,7 @@ function servicePage(s, today, ctx) {
 <div class="card"><b>3줄 요약</b><ul class="rec">
 <li><b>대상</b> ${esc(clip(plain(s.지원대상 || s.선정기준), 90) || '소관기관 문의')}</li>
 <li><b>지원 내용</b> ${esc(clip(plain(s.지원내용), 90) || '원문 참고')}</li>
-<li><b>신청 기한</b> ${s.deadline ? `${s.deadline}까지 <b>${ddayLabel(s.deadline, today)}</b>` : esc(clip(plain(s.신청기한), 50) || '상시 또는 소관기관 문의')}</li></ul></div>
+<li><b>신청 기한</b> ${s.deadline ? `${s.deadline}까지 <b>${ddayLabel(s.deadline, today)}</b>` : (s.always ? '상시 신청' : esc(clip(plain(s.신청기한), 50) || '상시 또는 소관기관 문의'))}</li></ul></div>
 ${s.서비스목적 || s.서비스목적요약 ? `<div class="card">${text(s.서비스목적 || s.서비스목적요약)}</div>` : ''}
 ${s.tags.length ? `<ul class="chips">${s.tags.map((t) => `<li><a href="${href(tPath(TBY.get(t)))}">${esc(t)} 지원금 모음</a></li>`).join('')}</ul>` : ''}
 <p>${online ? `<a class="cta" href="${esc(online)}" rel="nofollow noopener" target="_blank">👉 온라인 신청하기</a> ` : ''}<a href="${esc(orig)}" rel="nofollow noopener" target="_blank">보조금24 원문 보기 →</a></p>
@@ -297,7 +313,7 @@ ${calc.length ? `<p>미리 계산해 보기: ${calc.map(([p, n]) => `<a href="${
 <p class="src">서비스ID ${esc(s.서비스ID)} · 수정일 ${esc(normDate(s.수정일시) || '-')} · 등록일 ${esc(normDate(s.등록일시) || '-')}</p>`;
   // 2026-11-04 앱 주인 "지원금 페이지 세게 정리": 개별 서비스 페이지는 보조금24 글을 옮긴 것이라 전부 noindex(사이트맵에서도 빠진다).
   //   구글에는 지역·분야·대상 모음 페이지만 낸다. s.indexable은 모음 페이지 색인 판단(hasIdx)에 계속 쓴다.
-  return page({ title: svcTitle(ctx.name, today.slice(0, 4)), p: svcPath(s), body, noindex: SVC_NOINDEX || !s.indexable,
+  return page({ title: svcTitle(ctx.name, (s.deadline && s.deadline < today ? s.deadline : today).slice(0, 4)), p: svcPath(s), body, noindex: SVC_NOINDEX || !s.indexable,
     desc: clip(`${ctx.name}(${s.소관기관명}): ${s.서비스목적요약 || s.지원내용 || ''} 지원 대상, 선정 기준, 신청 방법과 기한을 정리했어요.`, 155),
     ld: crumbs([['홈', '/'], [s.서비스분야 || '분야', fieldP], [s.서비스명, svcPath(s)]]) });
 }
@@ -326,6 +342,7 @@ async function main() {
     s.age = [c?.JA0110 ?? null, c?.JA0111 ?? null];
     s.online = isOnline(s);
     s.deadline = parseDeadline(s.신청기한);
+    if (farDeadline(s.deadline, today)) { s.deadline = ''; s.always = true; } // "~2046.12.31" 같은 자리표시 기한 = 상시
     s.indexable = isMeaningful(s);
     return s;
   });
@@ -404,15 +421,15 @@ ${svcList(l, today)}` }));
 <h1>${esc(sd)} 지원금·혜택 (${comma(total)}개)</h1>
 <p class="lead">${esc(sd)} 본청 ${comma(R.own.length)}개, 시·군·구 ${comma(total - R.own.length)}개예요. 전국 공통(중앙부처·공공기관) 서비스 ${comma(nNational)}개는 <a href="/">홈 검색</a>에서 함께 볼 수 있어요.</p>
 ${sggs.length ? `<h2>시·군·구별</h2><ul class="chips">${sggs.map((g) => `<li><a href="${href(`${P}${slug(g)}/`)}">${esc(g)} <span class="c">${R.sgg.get(g).length}</span></a></li>`).join('')}</ul>` : ''}
-<h2>${esc(sd)} 본청 서비스 (${comma(R.own.length)}개)</h2>${svcList(R.own.sort(byViews), today)}` }));
+<h2>${esc(sd)} 본청 서비스 (${comma(R.own.length)}개)</h2>${svcList(R.own.sort(byViews), today, Infinity, undefined, true)}` }));
     for (const g of sggs) {
       const l = R.sgg.get(g).sort(byViews), GP = `${P}${slug(g)}/`;
-      write(GP, page({ title: `${sd} ${g} 지원금·혜택 ${comma(l.length)}개 | 정부 지원금 찾기`, p: GP, noindex: !l.some(hasIdx), ld: crumbs([['홈', '/'], [sd, P], [g, GP]]),
-        desc: `${sd} ${g}의 지원금·공공서비스 ${l.length}개. 지원 대상, 지원 내용, 신청 방법과 기한.`,
+      write(GP, page({ title: `${sd} ${g} 지원금·혜택 ${comma(l.length)}개 | 정부 지원금 찾기`, p: GP, noindex: l.length < REGION_MIN || !l.some(hasIdx), ld: crumbs([['홈', '/'], [sd, P], [g, GP]]),
+        desc: `${sd} ${g}에서 운영하는 지원금·공공서비스 ${l.length}개를 한 쪽에 모았어요. 서비스별 한 줄 요약과 신청 마감일.`,
         body: `<p class="hint"><a href="/">홈</a> › <a href="${href(P)}">${esc(sd)}</a> › ${esc(g)}</p>
 <h1>${esc(sd)} ${esc(g)} 지원금·혜택 (${comma(l.length)}개)</h1>
 <p class="lead">${esc(g)}에서 운영하는 공공서비스예요. <a href="${href(P)}">${esc(sd)} 본청 서비스</a>와 전국 공통 서비스도 함께 확인하세요.</p>
-${svcList(l, today)}` }));
+${svcList(l, today, Infinity, undefined, true)}` }));
     }
   }
   write('/r/', page({ title: '지역별 지원금·지자체 혜택 | 정부 지원금 찾기', p: '/r/', desc: '시도·시군구별 지자체 지원금과 공공서비스 목록.',
@@ -532,6 +549,6 @@ ${rss.map((s) => `<item><title>${esc(names.get(s.서비스ID))}</title><link>${S
   console.log('API 호출 수:', FIX ? '(fixtures)' : calls);
 }
 
-module.exports = { parseDeadline, regionOf, incomeMask, isMeaningful, isOnline, sitemaps, calcLinks, normDate, slug, targetNoindex, urgentFirst, TARGET_MIN,
+module.exports = { shortDate, farDeadline, mergeSame, parseDeadline, regionOf, incomeMask, isMeaningful, isOnline, sitemaps, calcLinks, normDate, slug, targetNoindex, urgentFirst, TARGET_MIN,
   refineRegion, whereOf, svcNames, svcTitle, stableHtml, trackPage, pingList, rfc822 };
 if (require.main === module) main().catch((e) => { console.error('❌ 빌드 실패:', e.message); process.exit(e.auth ? 3 : 1); });
