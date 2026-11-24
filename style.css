@@ -1,3 +1,4 @@
+:root{color-scheme:light dark}
 :root{--bg:#f6f7f9;--card:#fff;--ink:#1b2430;--muted:#5d6b7a;--line:#e3e7ec;--brand:#1d5c63;--accent:#e8452c;--ok:#1a7f4b}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;line-height:1.6}
